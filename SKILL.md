@@ -22,19 +22,36 @@ Inspect the relevant repository evidence yourself, identify the decision that ne
 
 Keep the packet under 32 KiB of UTF-8 JSON, normally much smaller. All values must be strings; `task` and `question` must be nonempty. Select only evidence needed for the question. Do not send the entire conversation or repository. Remove credentials, private keys, tokens, passwords, environment secrets, and unrelated personal data. The helper's secret checks are a backstop, not proof that a packet is safe. Use `[REDACTED]` placeholders where needed.
 
-Invoke the bundled `scripts/consult.py` with Python 3.9 or newer. Resolve its path relative to this SKILL.md. Supply the JSON via stdin using a tool's structured process input, or a private temporary JSON file with `--packet-file`. When using a shell, create the packet with a quoted heredoc delimiter that does not occur in its contents; never interpolate the packet into a command or unquoted heredoc. Do not put the prompt in process arguments. Delete any packet file afterward.
+On macOS/Linux, invoke the bundled `scripts/run_consult.sh`, which resolves `consult.py` relative to itself, tries `python3` first, and falls back to `python` only if it provides Python 3.9+. Do not invoke `python consult.py` directly or rely on a shell alias. On Windows, use the version-checked PowerShell invocation below; do not assume `py` is installed. Supply the JSON via stdin using a tool's structured process input, or a private temporary JSON file with `--packet-file`. When using a shell, create the packet with a quoted heredoc delimiter that does not occur in its contents; never interpolate the packet into a command or unquoted heredoc. Do not put the prompt in process arguments. Delete any packet file afterward.
 
 Typical installed invocation (stdin contains the JSON packet):
 
 ```sh
-python3 "${CODEX_HOME:-$HOME/.codex}/skills/consultant/scripts/consult.py"
+sh "${CODEX_HOME:-$HOME/.codex}/skills/consultant/scripts/run_consult.sh"
 ```
 
-On Windows PowerShell, use Python 3.9+ and the native `codex.exe` CLI. For example, with a private packet file:
+On Windows PowerShell, choose the first available Python 3.9+ interpreter from `py.exe -3`, `python3.exe`, and `python.exe`. The version probe rejects older interpreters and Windows Store aliases that do not launch Python. Use the native `codex.exe` CLI. For example, with a private packet file:
 
 ```powershell
 $skillHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' }
-py -3 (Join-Path $skillHome 'skills\consultant\scripts\consult.py') --packet-file 'C:\path\to\packet.json'
+$consultScript = Join-Path $skillHome 'skills\consultant\scripts\consult.py'
+$python = $null
+$pythonArgs = @()
+foreach ($candidate in @(
+    @{ Name = 'py.exe'; Prefix = @('-3') }
+    @{ Name = 'python3.exe'; Prefix = @() }
+    @{ Name = 'python.exe'; Prefix = @() }
+)) {
+    $found = Get-Command $candidate.Name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $found) { continue }
+    $executable = $found.Source
+    $prefix = $candidate.Prefix
+    try { & $executable @prefix -c 'import sys; sys.exit(sys.version_info < (3, 9))' *> $null }
+    catch { continue }
+    if ($LASTEXITCODE -eq 0) { $python = $executable; $pythonArgs = $prefix; break }
+}
+if (-not $python) { throw 'Python 3.9+ is required; py, python3, and python were unavailable or too old.' }
+& $python @pythonArgs $consultScript --packet-file 'C:\path\to\packet.json'
 ```
 
 The helper finds `codex.exe` on `PATH`, or accepts its full path through `--codex-bin`. Windows `.cmd`, `.bat`, and PowerShell wrappers are not supported. If Windows Job Object assignment fails, the helper stops before releasing the Codex child; do not bypass that failure. Delete the packet file afterward.

@@ -1,5 +1,7 @@
 # Consultant
 
+[简体中文](README.zh-CN.md)
+
 A manually invoked second opinion: the main Codex agent selects the evidence, a separate Codex CLI process advises, and the main agent evaluates the advice and continues.
 
 ## Use
@@ -27,17 +29,36 @@ Restart a desktop app from that environment for it to inherit the variable, or a
 Requires Python 3.9+ on macOS, Linux, or Windows and a Codex CLI supporting the checked flags. Uses only Python's standard library. On Windows, install the native `codex.exe` CLI; `.cmd`, `.bat`, and PowerShell wrappers are refused.
 
 ```sh
-python3 ~/.codex/skills/consultant/scripts/consult.py --packet-file /path/to/private-packet.json
+sh ~/.codex/skills/consultant/scripts/run_consult.sh --packet-file /path/to/private-packet.json
 ```
 
-On Windows PowerShell, with the skill installed at `%USERPROFILE%\.codex\skills\consultant`:
+On macOS/Linux, this launcher prefers `python3` and falls back to `python` only when it is Python 3.9 or newer. It reports a clear error if neither works. It passes all arguments and stdin unchanged to `consult.py`; no shell alias is needed. You may also invoke `consult.py` directly with a known Python 3.9+ interpreter.
+
+On Windows PowerShell, with the skill installed at `%USERPROFILE%\.codex\skills\consultant`, select a Python 3.9+ interpreter before invoking the helper:
 
 ```powershell
 $skillHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' }
-py -3 (Join-Path $skillHome 'skills\consultant\scripts\consult.py') --packet-file 'C:\path\to\private-packet.json'
+$consultScript = Join-Path $skillHome 'skills\consultant\scripts\consult.py'
+$python = $null
+$pythonArgs = @()
+foreach ($candidate in @(
+    @{ Name = 'py.exe'; Prefix = @('-3') }
+    @{ Name = 'python3.exe'; Prefix = @() }
+    @{ Name = 'python.exe'; Prefix = @() }
+)) {
+    $found = Get-Command $candidate.Name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $found) { continue }
+    $executable = $found.Source
+    $prefix = $candidate.Prefix
+    try { & $executable @prefix -c 'import sys; sys.exit(sys.version_info < (3, 9))' *> $null }
+    catch { continue }
+    if ($LASTEXITCODE -eq 0) { $python = $executable; $pythonArgs = $prefix; break }
+}
+if (-not $python) { throw 'Python 3.9+ is required; py, python3, and python were unavailable or too old.' }
+& $python @pythonArgs $consultScript --packet-file 'C:\path\to\private-packet.json'
 ```
 
-The helper looks for `codex.exe` on `PATH`. If it is elsewhere, pass `--codex-bin 'C:\path\to\codex.exe'`. Keep the packet file private and delete it after use.
+The PowerShell example tries `py.exe -3`, then `python3.exe`, then `python.exe`; a candidate is used only if its version probe succeeds. It runs inline, so no PowerShell script execution policy change is needed. The helper looks for `codex.exe` on `PATH`. If it is elsewhere, pass `--codex-bin 'C:\path\to\codex.exe'`. Keep the packet file private and delete it after use.
 
 Without `--packet-file`, the helper reads JSON from stdin. The six supported string fields are `task`, `question`, `proposed_approach`, `context`, `previous_attempts`, and `constraints`; `task` and `question` are required. Maximum input is 32 KiB. Use a private file and delete it afterward. Never place credentials in the packet.
 
@@ -88,4 +109,4 @@ Remove only `~/.codex/skills/consultant/` (or its custom `CODEX_HOME` equivalent
 
 ## Development checks
 
-From the skill's source directory, run `python3 -m unittest discover -s tests -v` (`py -3 -m unittest discover -s tests -v` on Windows) for offline subprocess tests. The suite includes the Windows gate and supervisor tests; the native Job Object test runs only on Windows. `python3 tests/check_cli_isolation.py` checks the real CLI's tool and skill isolation through a local capture server. `python3 tests/check_cli_api_auth.py` checks saved and environment API-key routes using disposable synthetic keys and a loopback server, with no live model request. Add `--test-conflict-with-current-login` only when the local CLI has a saved ChatGPT login and you want to verify an explicit API choice in that situation. These loopback checks may need local socket permission.
+From the skill's source directory, run `python3 -m unittest discover -s tests -v` for offline subprocess tests. On Windows, select `$python` and `$pythonArgs` with the PowerShell block above, then run `& $python @pythonArgs -m unittest discover -s tests -v`. The suite includes the Windows gate and supervisor tests; the native Job Object test runs only on Windows. `python3 tests/check_cli_isolation.py` checks the real CLI's tool and skill isolation through a local capture server. `python3 tests/check_cli_api_auth.py` checks saved and environment API-key routes using disposable synthetic keys and a loopback server, with no live model request. Add `--test-conflict-with-current-login` only when the local CLI has a saved ChatGPT login and you want to verify an explicit API choice in that situation. These loopback checks may need local socket permission.
