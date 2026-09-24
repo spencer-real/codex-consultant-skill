@@ -1,0 +1,6 @@
+interface:
+  display_name: "Consultant"
+  short_description: "Independent technical advice through Codex"
+  default_prompt: "Use $consultant to review my proposed approach, evaluate the advice against the repository, and continue the task."
+policy:
+  allow_implicit_invocation: false
